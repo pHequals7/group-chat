@@ -50,12 +50,13 @@ class Database {
     }
 
     // Create a new user message (compatible with existing schema)
-    async createUserMessage(content, conversationId = '00000000-0000-0000-0000-000000000002', replyToMessageId = null, conversationMode = 'group') {
+    async createUserMessage(content, conversationId = '00000000-0000-0000-0000-000000000002', replyToMessageId = null, conversationMode = 'group', userId = '00000000-0000-0000-0000-000000000001') {
         // Use only existing schema fields for now
         const insertData = {
             conversation_id: conversationId,
             sender_type: 'user',
-            sender_id: '00000000-0000-0000-0000-000000000001', // Default test user
+            sender_id: userId,
+            user_id: userId,
             content: content,
             created_at: new Date().toISOString()
         };
@@ -96,11 +97,12 @@ class Database {
     }
 
     // Create a new AI message (compatible with existing schema)
-    async createAIMessage(content, modelId, isFirstResponder = false, conversationId = '00000000-0000-0000-0000-000000000002', replyToMessageId = null, conversationMode = 'group') {
+    async createAIMessage(content, modelId, isFirstResponder = false, conversationId = '00000000-0000-0000-0000-000000000002', replyToMessageId = null, conversationMode = 'group', userId = '00000000-0000-0000-0000-000000000001') {
         const insertData = {
             conversation_id: conversationId,
             sender_type: 'ai',
             ai_model_id: modelId,
+            user_id: userId,
             content: content,
             is_first_responder: isFirstResponder,
             created_at: new Date().toISOString()

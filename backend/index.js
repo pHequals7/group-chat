@@ -5,6 +5,7 @@ const cors = require('cors');
 const fs = require('fs');
 const path = require('path');
 const database = require('./database');
+const { authenticateUser, optionalAuth } = require('./auth');
 
 const app = express();
 app.use(express.json());
@@ -181,7 +182,7 @@ app.get('/api/messages', async (req, res) => {
 /**
  * Get all conversations for the user
  */
-app.get('/api/conversations', async (req, res) => {
+app.get('/api/conversations', authenticateUser, async (req, res) => {
     try {
         const conversations = await database.getConversations();
         res.json(conversations);
@@ -194,7 +195,7 @@ app.get('/api/conversations', async (req, res) => {
 /**
  * Create a new conversation
  */
-app.post('/api/conversations', async (req, res) => {
+app.post('/api/conversations', authenticateUser, async (req, res) => {
     try {
         const conversation = await database.createConversation();
         res.json(conversation);
@@ -207,7 +208,7 @@ app.post('/api/conversations', async (req, res) => {
 /**
  * Get messages for a specific conversation
  */
-app.get('/api/conversations/:conversationId/messages', async (req, res) => {
+app.get('/api/conversations/:conversationId/messages', authenticateUser, async (req, res) => {
     try {
         const { conversationId } = req.params;
         const messages = await database.getMessages(conversationId);
@@ -293,7 +294,7 @@ Return ONLY the title, no quotes or extra text.`;
 /**
  * Enhanced chat endpoint with conversation modes and reply support
  */
-app.post('/api/chat', async (req, res) => {
+app.post('/api/chat', authenticateUser, async (req, res) => {
     const { prompt, firstResponder, conversationId, replyToMessageId } = req.body;
     let conversationMode = req.body.conversationMode || 'group';
 
@@ -342,7 +343,7 @@ app.post('/api/chat', async (req, res) => {
         const conversationContext = await database.getConversationContext(targetConversationId, 10);
         
         // Save user message to database
-        const userMessage = await database.createUserMessage(prompt, targetConversationId, replyToMessageId, conversationMode);
+        const userMessage = await database.createUserMessage(prompt, targetConversationId, replyToMessageId, conversationMode, req.user.id);
 
         // For AI replies: target the user's new message, not the original replyToMessageId
         const aiReplyTargetId = userMessage.id;
@@ -389,7 +390,7 @@ app.post('/api/chat', async (req, res) => {
                     });
 
                     const response = await callOpenRouter(targetModel, prompt, [], maxChars, systemPrompt);
-                    await database.createAIMessage(response, targetModel, false, targetConversationId, aiReplyTargetId, 'direct');
+                    await database.createAIMessage(response, targetModel, false, targetConversationId, aiReplyTargetId, 'direct', req.user.id);
                     
                     res.write(`data: ${JSON.stringify({ 
                         type: 'message',
@@ -444,7 +445,7 @@ app.post('/api/chat', async (req, res) => {
 
             // First responder
             const firstResponderResponse = await callOpenRouter(firstResponder, prompt, [], maxChars, systemPrompt);
-            await database.createAIMessage(firstResponderResponse, firstResponder, true, targetConversationId, aiReplyTargetId, 'group');
+            await database.createAIMessage(firstResponderResponse, firstResponder, true, targetConversationId, aiReplyTargetId, 'group', req.user.id);
             
             res.write(`data: ${JSON.stringify({ 
                 type: 'message',
@@ -479,7 +480,7 @@ app.post('/api/chat', async (req, res) => {
                 });
 
                 const newResponse = await callOpenRouter(model, uniquenessPrompt, chatHistory, maxChars, systemPrompt);
-                await database.createAIMessage(newResponse, model, false, targetConversationId, aiReplyTargetId, 'group');
+                await database.createAIMessage(newResponse, model, false, targetConversationId, aiReplyTargetId, 'group', req.user.id);
                 
                 res.write(`data: ${JSON.stringify({ 
                     type: 'message',

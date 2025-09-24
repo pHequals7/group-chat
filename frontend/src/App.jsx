@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import './reply-styles.css';
+import { useAuth } from './AuthContext';
 
 // --- Configuration ---
 const MODELS = [
@@ -14,6 +15,7 @@ const BACKEND_URL = 'http://localhost:7001';
 
 // --- Main App Component ---
 function App() {
+    const { user, signOut, session } = useAuth();
     const [messages, setMessages] = useState([]);
     const [input, setInput] = useState('');
     const [firstResponder, setFirstResponder] = useState(MODELS[0].id);
@@ -24,7 +26,17 @@ function App() {
     const [activeConversationId, setActiveConversationId] = useState(null);
     const [replyToMessage, setReplyToMessage] = useState(null);
     const [conversationMode, setConversationMode] = useState('group');
+    const [showUserMenu, setShowUserMenu] = useState(false);
     const chatContainerRef = useRef(null);
+
+    // Helper function to get auth headers
+    const getAuthHeaders = () => {
+        const headers = { 'Content-Type': 'application/json' };
+        if (session?.access_token) {
+            headers.Authorization = `Bearer ${session.access_token}`;
+        }
+        return headers;
+    };
 
     // Load existing messages on component mount
     useEffect(() => {
@@ -51,7 +63,9 @@ function App() {
 
     const loadConversations = async () => {
         try {
-            const response = await fetch(`${BACKEND_URL}/api/conversations`);
+            const response = await fetch(`${BACKEND_URL}/api/conversations`, {
+                headers: getAuthHeaders()
+            });
             if (response.ok) {
                 const loadedConversations = await response.json();
                 setConversations(loadedConversations);
@@ -74,7 +88,9 @@ function App() {
             
             console.log('Loading messages from:', url);
             
-            const response = await fetch(url);
+            const response = await fetch(url, {
+                headers: getAuthHeaders()
+            });
             if (response.ok) {
                 const loadedMessages = await response.json();
                 console.log('Loaded messages:', loadedMessages.length);
@@ -207,7 +223,7 @@ function App() {
         try {
             const response = await fetch(`${BACKEND_URL}/api/conversations`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' }
+                headers: getAuthHeaders()
             });
             if (response.ok) {
                 const newConversation = await response.json();
@@ -341,7 +357,7 @@ function App() {
             // Use fetch with streaming instead of EventSource for POST data
             const response = await fetch(`${BACKEND_URL}/api/chat`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: getAuthHeaders(),
                 body: JSON.stringify({ 
                     prompt: promptToSend, 
                     firstResponder,
@@ -407,8 +423,79 @@ function App() {
                                 <div className="name">{conversationTitle}<span className="status"> Online</span></div>
                             </div>
                             <div className="actions-group">
-                                <div className="actions more">⋮</div>
-                                <div className="actions attachment">📎</div>
+                                <div className="user-avatar-menu" style={{position: 'relative'}}>
+                                    <button
+                                        onClick={() => setShowUserMenu(!showUserMenu)}
+                                        className="user-avatar-btn"
+                                        style={{
+                                            background: 'none',
+                                            border: 'none',
+                                            cursor: 'pointer',
+                                            padding: '4px',
+                                            borderRadius: '50%',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '8px'
+                                        }}
+                                    >
+                                        <div style={{
+                                            width: 32,
+                                            height: 32,
+                                            background: '#00a884',
+                                            borderRadius: '50%',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            color: 'white',
+                                            fontSize: '14px',
+                                            fontWeight: 'bold'
+                                        }}>
+                                            {user?.email?.charAt(0).toUpperCase() || 'U'}
+                                        </div>
+                                        <span style={{fontSize: '12px', color: '#667781'}}>{user?.email || 'User'}</span>
+                                    </button>
+                                    {showUserMenu && (
+                                        <div style={{
+                                            position: 'absolute',
+                                            top: '100%',
+                                            right: 0,
+                                            background: 'white',
+                                            border: '1px solid #e0e0e0',
+                                            borderRadius: '8px',
+                                            boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+                                            zIndex: 1000,
+                                            minWidth: '150px',
+                                            marginTop: '4px'
+                                        }}>
+                                            <div style={{
+                                                padding: '12px 16px',
+                                                borderBottom: '1px solid #f0f0f0',
+                                                fontSize: '12px',
+                                                color: '#667781'
+                                            }}>
+                                                {user?.email}
+                                            </div>
+                                            <button
+                                                onClick={() => {
+                                                    setShowUserMenu(false);
+                                                    signOut();
+                                                }}
+                                                style={{
+                                                    width: '100%',
+                                                    padding: '12px 16px',
+                                                    background: 'none',
+                                                    border: 'none',
+                                                    textAlign: 'left',
+                                                    cursor: 'pointer',
+                                                    fontSize: '14px',
+                                                    color: '#d32f2f'
+                                                }}
+                                            >
+                                                Sign out
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
                             </div>
                         </div>
                         <div className="conversation">

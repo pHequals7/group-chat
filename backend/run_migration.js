@@ -5,112 +5,55 @@ const fs = require('fs');
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_ANON_KEY;
 
-if (!supabaseUrl || !supabaseKey) {
-    console.error('❌ Missing Supabase credentials');
-    process.exit(1);
-}
-
-const supabase = createClient(supabaseUrl, supabaseKey);
-
 async function runMigration() {
-    console.log('🚀 Starting DeepSeek model migration...');
-    
+    const supabase = createClient(supabaseUrl, supabaseKey);
+
     try {
-        // Step 1: Update ai_models table
-        console.log('1. Updating ai_models table...');
-        const { error: updateError } = await supabase
-            .from('ai_models')
-            .update({
-                id: 'deepseek/deepseek-chat',
-                name: 'DeepSeek Chat',
-                display_name: 'DeepSeek Chat V3.1'
-            })
-            .eq('id', 'deepseek/deepseek-v2-coder');
-        
-        if (updateError && updateError.code !== 'PGRST116') { // PGRST116 = no rows to update
-            console.error('Error updating ai_models:', updateError);
-        } else {
-            console.log('✅ ai_models table updated');
-        }
+        console.log('🔗 Connecting to Supabase...');
 
-        // Step 2: Check if old model exists, if not insert new one
-        console.log('2. Checking for existing model...');
-        const { data: existingModel } = await supabase
-            .from('ai_models')
-            .select('id')
-            .eq('id', 'deepseek/deepseek-chat')
-            .single();
+        // Read the SQL migration file
+        const sql = fs.readFileSync('../add_metadata_column.sql', 'utf8');
+        console.log('📖 SQL Migration:');
+        console.log(sql);
 
-        if (!existingModel) {
-            console.log('3. Inserting new DeepSeek Chat model...');
-            const { error: insertError } = await supabase
-                .from('ai_models')
-                .insert({
-                    id: 'deepseek/deepseek-chat',
-                    name: 'DeepSeek Chat',
-                    display_name: 'DeepSeek Chat V3.1',
-                    avatar: ' D ',
-                    provider: 'deepseek',
-                    is_active: true
-                });
-            
-            if (insertError) {
-                console.error('Error inserting new model:', insertError);
-            } else {
-                console.log('✅ New DeepSeek Chat model inserted');
+        // Execute the migration
+        console.log('⚡ Executing migration...');
+        const { data, error } = await supabase.rpc('exec_sql', { sql: sql });
+
+        if (error) {
+            console.error('❌ Migration failed:', error);
+
+            // Try alternative approach using individual statements
+            console.log('🔄 Trying alternative approach...');
+
+            // Add metadata column
+            const { error: alterError } = await supabase
+                .from('messages')
+                .select('*')
+                .limit(1);
+
+            if (alterError) {
+                console.error('❌ Cannot access messages table:', alterError);
+                return;
             }
-        }
 
-        // Step 3: Update messages table
-        console.log('4. Updating messages table...');
-        const { error: messagesError } = await supabase
-            .from('messages')
-            .update({ ai_model_id: 'deepseek/deepseek-chat' })
-            .eq('ai_model_id', 'deepseek/deepseek-v2-coder');
-        
-        if (messagesError && messagesError.code !== 'PGRST116') {
-            console.error('Error updating messages:', messagesError);
+            console.log('✅ Messages table is accessible. You need to add the metadata column manually:');
+            console.log('Go to Supabase Dashboard → Table Editor → messages → Add Column');
+            console.log('Column name: metadata');
+            console.log('Type: jsonb');
+            console.log('Default value: {}');
+
         } else {
-            console.log('✅ Messages table updated');
+            console.log('✅ Migration completed successfully!', data);
         }
 
-        // Step 4: Update conversation_ai_models table
-        console.log('5. Updating conversation_ai_models table...');
-        const { error: conversationError } = await supabase
-            .from('conversation_ai_models')
-            .update({ ai_model_id: 'deepseek/deepseek-chat' })
-            .eq('ai_model_id', 'deepseek/deepseek-v2-coder');
-        
-        if (conversationError && conversationError.code !== 'PGRST116') {
-            console.error('Error updating conversation_ai_models:', conversationError);
-        } else {
-            console.log('✅ conversation_ai_models table updated');
-        }
-
-        // Step 5: Ensure new model is in default conversation
-        console.log('6. Adding new model to default conversation...');
-        const { error: addToConversationError } = await supabase
-            .from('conversation_ai_models')
-            .upsert({
-                conversation_id: '00000000-0000-0000-0000-000000000002',
-                ai_model_id: 'deepseek/deepseek-chat',
-                is_active: true
-            });
-        
-        if (addToConversationError) {
-            console.error('Error adding model to conversation:', addToConversationError);
-        } else {
-            console.log('✅ Model added to default conversation');
-        }
-
-        console.log('\n🎉 Migration completed successfully!');
-        console.log('DeepSeek V2 Coder → DeepSeek Chat V3.1');
-        
     } catch (error) {
-        console.error('❌ Migration failed:', error);
-        process.exit(1);
+        console.error('💥 Error:', error.message);
+        console.log('\n📋 Manual steps:');
+        console.log('1. Go to Supabase Dashboard → SQL Editor');
+        console.log('2. Run this SQL:');
+        console.log('ALTER TABLE messages ADD COLUMN IF NOT EXISTS metadata JSONB DEFAULT \'{}\';');
     }
 }
 
-// Run the migration
 runMigration();
