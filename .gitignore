@@ -67,3 +67,17 @@ jspm_packages/
 # temporary folders
 tmp/
 temp/
+
+# Temporary SQL scripts and test files
+sql-scripts/temp/
+*_temp.sql
+test_*.sql
+fix_*.sql
+
+# Supabase temp files
+supabase/.temp/
+backend/supabase/.temp/
+
+# Editor swap files
+*.swp
+*.swo
