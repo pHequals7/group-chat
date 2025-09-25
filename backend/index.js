@@ -151,10 +151,11 @@ app.get('/debug/tables', async (req, res) => {
 /**
  * Get conversation messages
  */
-app.get('/api/messages', async (req, res) => {
+app.get('/api/messages', requireAuth, async (req, res) => {
     try {
-        const messages = await database.getMessages();
-        
+        const userId = req.user.id;
+        const messages = await database.getMessages('00000000-0000-0000-0000-000000000002', userId);
+
         // Transform messages to match frontend format
         const transformedMessages = messages.map(msg => {
             const baseMsg = {
@@ -163,12 +164,12 @@ app.get('/api/messages', async (req, res) => {
                 text: msg.content,
                 time: new Date(msg.created_at)
             };
-            
+
             if (msg.sender_type === 'ai' && msg.ai_models) {
                 baseMsg.model = msg.ai_models.name;
                 baseMsg.avatar = msg.ai_models.avatar;
             }
-            
+
             return baseMsg;
         });
         

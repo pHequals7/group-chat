@@ -31,21 +31,29 @@ class Database {
     }
 
     // Get all messages for a conversation
-    async getMessages(conversationId = '00000000-0000-0000-0000-000000000002') {
-        const { data, error } = await supabase
+    async getMessages(conversationId = '00000000-0000-0000-0000-000000000002', userId = null) {
+        let query = supabase
             .from('messages')
             .select(`
                 *,
                 ai_models(name, avatar)
             `)
-            .eq('conversation_id', conversationId)
-            .order('created_at', { ascending: true });
-        
+            .eq('conversation_id', conversationId);
+
+        // Filter by user ID if provided
+        if (userId) {
+            query = query.eq('user_id', userId);
+        }
+
+        query = query.order('created_at', { ascending: true });
+
+        const { data, error } = await query;
+
         if (error) {
             console.error('Error fetching messages:', error);
             throw new Error('Failed to fetch messages');
         }
-        
+
         return data;
     }
 
