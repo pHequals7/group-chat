@@ -1,6 +1,16 @@
 import React, { useState, useEffect, useRef } from 'react';
 import './reply-styles.css';
 import { useAuth } from './AuthContext';
+import WhatsAppModelManager from './components/ModelManager';
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 // --- Configuration ---
 const MODELS = [
@@ -10,6 +20,7 @@ const MODELS = [
     { id: "meta-llama/llama-3-8b-instruct", name: "Llama" },
     { id: "deepseek/deepseek-chat", name: "DeepSeek Chat" },
     { id: "qwen/qwen-2.5-7b-instruct", name: "Qwen" },
+    { id: "moonshotai/kimi-k2", name: "Kimi K2" },
 ];
 const BACKEND_URL = 'http://localhost:7001';
 
@@ -26,7 +37,11 @@ function App() {
     const [activeConversationId, setActiveConversationId] = useState(null);
     const [replyToMessage, setReplyToMessage] = useState(null);
     const [conversationMode, setConversationMode] = useState('group');
-    const [showUserMenu, setShowUserMenu] = useState(false);
+    const [currentView, setCurrentView] = useState('chat'); // 'chat' or 'profile'
+    const [userPrompts, setUserPrompts] = useState([]);
+    const [editingPrompt, setEditingPrompt] = useState(null);
+    const [characterLimit, setCharacterLimit] = useState(280);
+    const [selectedModels, setSelectedModels] = useState(MODELS.map(m => m.id));
     const chatContainerRef = useRef(null);
 
     // Helper function to get auth headers
@@ -60,6 +75,7 @@ function App() {
             chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
         }
     }, [messages]);
+
 
     const loadConversations = async () => {
         try {
@@ -358,12 +374,14 @@ function App() {
             const response = await fetch(`${BACKEND_URL}/api/chat`, {
                 method: 'POST',
                 headers: getAuthHeaders(),
-                body: JSON.stringify({ 
-                    prompt: promptToSend, 
+                body: JSON.stringify({
+                    prompt: promptToSend,
                     firstResponder,
                     conversationId: activeConversationId,
                     replyToMessageId: replyToId,
-                    conversationMode: currentMode
+                    conversationMode: currentMode,
+                    characterLimit: characterLimit,
+                    selectedModels: selectedModels
                 })
             });
 
@@ -406,96 +424,136 @@ function App() {
         }
     };
 
+    // ===== PROMPT MANAGEMENT FUNCTIONS =====
+
+    const loadPrompts = async () => {
+        try {
+            const response = await fetch(`${BACKEND_URL}/api/prompts`, {
+                headers: getAuthHeaders()
+            });
+
+            if (response.ok) {
+                const prompts = await response.json();
+                setUserPrompts(prompts);
+            } else {
+                console.error('Failed to load prompts:', response.status);
+            }
+        } catch (error) {
+            console.error('Error loading prompts:', error);
+        }
+    };
+
+    const savePrompt = async (prompt) => {
+        try {
+            const url = prompt.id
+                ? `${BACKEND_URL}/api/prompts/${prompt.id}`
+                : `${BACKEND_URL}/api/prompts`;
+
+            const method = prompt.id ? 'PUT' : 'POST';
+
+            const response = await fetch(url, {
+                method,
+                headers: getAuthHeaders(),
+                body: JSON.stringify(prompt)
+            });
+
+            if (response.ok) {
+                await loadPrompts(); // Reload prompts
+                setEditingPrompt(null);
+            } else {
+                console.error('Failed to save prompt:', response.status);
+            }
+        } catch (error) {
+            console.error('Error saving prompt:', error);
+        }
+    };
+
+    const deletePrompt = async (promptId) => {
+        if (!confirm('Are you sure you want to delete this prompt?')) {
+            return;
+        }
+
+        try {
+            const response = await fetch(`${BACKEND_URL}/api/prompts/${promptId}`, {
+                method: 'DELETE',
+                headers: getAuthHeaders()
+            });
+
+            if (response.ok) {
+                await loadPrompts(); // Reload prompts
+            } else {
+                console.error('Failed to delete prompt:', response.status);
+            }
+        } catch (error) {
+            console.error('Error deleting prompt:', error);
+        }
+    };
+
+    // Load prompts when user changes or view changes to profile
+    useEffect(() => {
+        if (user && currentView === 'profile') {
+            loadPrompts();
+        }
+    }, [user, currentView]);
+
     return (
         <div className="page">
             <div className="main-container">
-                <Sidebar 
+                <Sidebar
                     conversations={conversations}
                     activeConversationId={activeConversationId}
                     onConversationSelect={setActiveConversationId}
                     onNewConversation={createNewConversation}
+                    onProfileClick={() => setCurrentView(currentView === 'profile' ? 'chat' : 'profile')}
                 />
-                <div className="chat">
-                    <div className="chat-container">
-                        <div className="user-bar">
-                            <div className="user-info">
-                                <div className="avatar"><div style={{width:36,height:36,background:'#00a884',borderRadius:'50%',display:'block'}}/></div>
-                                <div className="name">{conversationTitle}<span className="status"> Online</span></div>
-                            </div>
-                            <div className="actions-group">
-                                <div className="user-avatar-menu" style={{position: 'relative'}}>
-                                    <button
-                                        onClick={() => setShowUserMenu(!showUserMenu)}
-                                        className="user-avatar-btn"
-                                        style={{
-                                            background: 'none',
-                                            border: 'none',
-                                            cursor: 'pointer',
-                                            padding: '4px',
-                                            borderRadius: '50%',
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            gap: '8px'
-                                        }}
-                                    >
-                                        <div style={{
-                                            width: 32,
-                                            height: 32,
-                                            background: '#00a884',
-                                            borderRadius: '50%',
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            justifyContent: 'center',
-                                            color: 'white',
-                                            fontSize: '14px',
-                                            fontWeight: 'bold'
-                                        }}>
-                                            {user?.email?.charAt(0).toUpperCase() || 'U'}
-                                        </div>
-                                        <span style={{fontSize: '12px', color: '#667781'}}>{user?.email || 'User'}</span>
-                                    </button>
-                                    {showUserMenu && (
-                                        <div style={{
-                                            position: 'absolute',
-                                            top: '100%',
-                                            right: 0,
-                                            background: 'white',
-                                            border: '1px solid #e0e0e0',
-                                            borderRadius: '8px',
-                                            boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
-                                            zIndex: 1000,
-                                            minWidth: '150px',
-                                            marginTop: '4px'
-                                        }}>
-                                            <div style={{
-                                                padding: '12px 16px',
-                                                borderBottom: '1px solid #f0f0f0',
-                                                fontSize: '12px',
-                                                color: '#667781'
-                                            }}>
-                                                {user?.email}
-                                            </div>
-                                            <button
-                                                onClick={() => {
-                                                    setShowUserMenu(false);
-                                                    signOut();
-                                                }}
-                                                style={{
-                                                    width: '100%',
-                                                    padding: '12px 16px',
-                                                    background: 'none',
-                                                    border: 'none',
-                                                    textAlign: 'left',
-                                                    cursor: 'pointer',
-                                                    fontSize: '14px',
-                                                    color: '#d32f2f'
-                                                }}
-                                            >
-                                                Sign out
-                                            </button>
-                                        </div>
-                                    )}
+                {currentView === 'profile' ? (
+                    <ProfileView
+                        userPrompts={userPrompts}
+                        onSave={savePrompt}
+                        onDelete={deletePrompt}
+                        editingPrompt={editingPrompt}
+                        setEditingPrompt={setEditingPrompt}
+                        user={user}
+                        onBack={() => setCurrentView('chat')}
+                    />
+                ) : (
+                    <div className="chat">
+                        <div className="chat-container">
+                            <div className="user-bar">
+                                <div className="user-info">
+                                    <div className="avatar"><div style={{width:36,height:36,background:'#00a884',borderRadius:'50%',display:'block'}}/></div>
+                                    <div className="name">{conversationTitle}<span className="status"> Online</span></div>
                                 </div>
+                            <div className="actions-group">
+                                <DropdownMenu>
+                                    <DropdownMenuTrigger asChild>
+                                        <button className="flex items-center gap-2 px-3 py-2 rounded-lg text-white hover:bg-white/10 transition-colors border-none bg-transparent cursor-pointer">
+                                        <Avatar className="w-8 h-8">
+                                            <AvatarFallback className="bg-whatsapp-green text-white text-sm font-bold">
+                                                {user?.email?.charAt(0).toUpperCase() || 'U'}
+                                            </AvatarFallback>
+                                        </Avatar>
+                                            <span className="text-sm text-white/90">{user?.email || 'User'}</span>
+                                        </button>
+                                    </DropdownMenuTrigger>
+                                    <DropdownMenuContent align="end" className="w-56">
+                                        <DropdownMenuLabel className="font-normal">
+                                            <div className="flex flex-col space-y-1">
+                                                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                                                    Signed in as
+                                                </p>
+                                                <p className="text-sm font-medium leading-none">{user?.email}</p>
+                                            </div>
+                                        </DropdownMenuLabel>
+                                        <DropdownMenuSeparator />
+                                        <DropdownMenuItem
+                                            onClick={signOut}
+                                            className="text-red-600 focus:text-red-600 cursor-pointer"
+                                        >
+                                            Sign out
+                                        </DropdownMenuItem>
+                                    </DropdownMenuContent>
+                                </DropdownMenu>
                             </div>
                         </div>
                         <div className="conversation">
@@ -512,14 +570,28 @@ function App() {
                             <div className="conversation-compose">
                                 {replyToMessage && <ReplyPreview message={replyToMessage} onClear={clearReply} />}
                                 <div className="input-row">
-                                    <ModelSelector selected={firstResponder} setSelected={setFirstResponder} disabled={isLoading || conversationMode === 'direct'} />
-                                    <input 
-                                        className="input-msg" 
-                                        type="text" 
-                                        value={input} 
-                                        onChange={e => setInput(e.target.value)} 
-                                        onKeyDown={e => e.key === 'Enter' && handleSend()} 
-                                        placeholder={replyToMessage ? `Replying to ${replyToMessage.model || 'User'}...` : "Type a message"} 
+                                    {conversationMode === 'direct' ? (
+                                        <ModelSelector selected={firstResponder} setSelected={setFirstResponder} disabled={true} />
+                                    ) : (
+                                        <WhatsAppModelManager selectedModels={selectedModels} setSelectedModels={setSelectedModels} disabled={isLoading} />
+                                    )}
+                                    <input
+                                        className="input-msg"
+                                        type="text"
+                                        value={input}
+                                        onChange={e => setInput(e.target.value)}
+                                        onKeyDown={e => e.key === 'Enter' && handleSend()}
+                                        placeholder={replyToMessage ? `Replying to ${replyToMessage.model || 'User'}...` : "Type a message"}
+                                    />
+                                    <input
+                                        className="char-limit-input"
+                                        type="number"
+                                        min="50"
+                                        max="2000"
+                                        value={characterLimit}
+                                        onChange={e => setCharacterLimit(parseInt(e.target.value) || 280)}
+                                        placeholder="280"
+                                        title="Character limit for responses"
                                     />
                                     <button className="send" onClick={handleSend} disabled={isLoading || !input.trim()}>
                                         <div className="circle"><SendIcon /></div>
@@ -529,6 +601,7 @@ function App() {
                         </div>
                     </div>
                 </div>
+                )}
             </div>
         </div>
     );
@@ -548,6 +621,7 @@ const ProviderIcon = ({ modelId, size = 24 }) => {
         if (modelId.startsWith('meta-llama/')) return 'meta';
         if (modelId.startsWith('deepseek/')) return 'deepseek';
         if (modelId.startsWith('qwen/')) return 'qwen';
+        if (modelId.startsWith('moonshotai/')) return 'moonshot';
         return 'default';
     };
 
@@ -615,15 +689,26 @@ const ReplyPreview = ({ message, onClear }) => (
     </div>
 );
 
-const Sidebar = ({ conversations, activeConversationId, onConversationSelect, onNewConversation }) => (
+const Sidebar = ({ conversations, activeConversationId, onConversationSelect, onNewConversation, onProfileClick }) => (
     <div className="sidebar">
         <div className="sidebar-header">
             <div className="avatar">
                 <img src="/robot.jpg" alt="user avatar" />
             </div>
             <div className="sidebar-actions">
-                <button 
-                    className="new-chat-btn" 
+                <button
+                    className="new-chat-btn"
+                    onClick={onProfileClick}
+                    title="Profile & Settings"
+                    style={{
+                        background: '#00a884',
+                        marginRight: '8px'
+                    }}
+                >
+                    ⚙️
+                </button>
+                <button
+                    className="new-chat-btn"
                     onClick={onNewConversation}
                     title="New Chat"
                 >
@@ -735,7 +820,8 @@ const getModelColorClass = (modelName) => {
         'Claude': 'model-claude',
         'Llama': 'model-llama',
         'DeepSeek Chat': 'model-deepseek-chat',
-        'Qwen': 'model-qwen'
+        'Qwen': 'model-qwen',
+        'Kimi K2': 'model-kimi-k2'
     };
     return modelMap[modelName] || 'model-default';
 };
@@ -765,8 +851,8 @@ const MessageBubble = ({ msg, onReply }) => {
 
     return (
         <div className={`${bubbleClasses} ${msg.isDirectReply ? 'direct-reply' : ''}`}>
-            {/* Reply context if this message is replying to another */}
-            {msg.replyTo && (
+            {/* Reply context if this message is replying to another AND it's a direct reply */}
+            {msg.replyTo && msg.isDirectReply && (
                 <div className="reply-context">
                     <div className="reply-context-bar"></div>
                     <div className="reply-context-content">
@@ -856,6 +942,7 @@ const ModelSelector = ({ selected, setSelected, disabled }) => (
     </select>
 );
 
+
 const TypingIndicator = ({ model }) => (
     <div className="message received">
         <strong className={getModelColorClass(model?.model)} style={{display:'block',fontSize:12,marginBottom:4,fontWeight:600}}>
@@ -877,6 +964,354 @@ const SendIcon = () => (
         <path d="M3.478 2.405a.75.75 0 00-.926.94l2.432 7.905H13.5a.75.75 0 010 1.5H4.984l-2.432 7.905a.75.75 0 00.926.94 60.519 60.519 0 0018.445-8.986.75.75 0 000-1.218A60.517 60.517 0 003.478 2.405z" />
     </svg>
 );
+
+// ===== PROFILE VIEW COMPONENT =====
+const ProfileView = ({ userPrompts, onSave, onDelete, editingPrompt, setEditingPrompt, user, onBack }) => {
+    const promptTypes = [
+        { key: 'base-system', label: 'Base System Prompt', description: 'The main system prompt for first responders in group chat' },
+        { key: 'uniqueness', label: 'Uniqueness Prompt', description: 'Instructions for subsequent AI models to provide unique perspectives' },
+        { key: 'thread-context', label: 'Thread Context Prompt', description: 'Instructions for ongoing conversation threads' },
+        { key: 'direct-conversation', label: 'Direct Conversation Prompt', description: 'Instructions for 1-on-1 conversations with specific AI models' }
+    ];
+
+    const getPromptsForType = (type) => userPrompts.filter(p => p.prompt_type === type);
+
+    const getDefaultPromptForType = (type) => {
+        // System default prompts (fallback if no custom prompt exists)
+        const systemDefaults = {
+            'base-system': `You are one of several AI assistants in a coordinated group chat. Reply concisely and with high signal density. Avoid filler and restating the question. Prefer direct, practical guidance but with a jovial tone since this is a group chat at the end of the day.
+
+Constraints:
+- Max length: {{MAX_CHARS}} characters
+- Response must be plain text only
+- If unsure, say so briefly and suggest one concrete next step`,
+
+            'uniqueness': `You are an AI assistant in a group chat. Your goal is to provide a unique perspective versus prior assistant answers.
+
+Rules:
+- Do not repeat core ideas, conclusions, or primary examples already given.
+- Offer a NEW angle, method, or tradeoff the others missed. If the previous messages have missed an important point you should address them - but do not mention "New perspective" or any variations of that in your output responses
+- Stay within {{MAX_CHARS}} characters.
+- Plain text only.
+
+Context:
+- Original user question: "{{USER_PROMPT}}"
+- Previous assistant answers:
+{{PRIOR_ANSWERS}}`,
+
+            'thread-context': `You are continuing an ongoing conversation thread. Maintain context and build upon previous messages while staying focused and concise.
+
+Context:
+{{CONVERSATION_HISTORY}}
+
+Constraints:
+- Max length: {{MAX_CHARS}} characters
+- Plain text only
+- Reference previous context when relevant`,
+
+            'direct-conversation': `You are in a direct 1-on-1 conversation with the user. Provide focused, personalized responses.
+
+Constraints:
+- Max length: {{MAX_CHARS}} characters
+- Plain text only
+- Direct and conversational tone`
+        };
+        return systemDefaults[type] || '';
+    };
+
+    return (
+        <div className="profile-view" style={{ height: '100vh', overflow: 'hidden', width: '100%' }}>
+            <div className="user-bar">
+                <div className="user-info">
+                    <button
+                        onClick={onBack}
+                        style={{
+                            background: 'transparent',
+                            border: 'none',
+                            color: 'white',
+                            fontSize: '18px',
+                            marginRight: '10px',
+                            cursor: 'pointer'
+                        }}
+                    >
+                        ←
+                    </button>
+                    <div className="avatar"><div style={{width:36,height:36,background:'#00a884',borderRadius:'50%',display:'block'}}/></div>
+                    <div className="name">Profile & Settings<span className="status"> {user?.email}</span></div>
+                </div>
+            </div>
+
+            <div style={{ height: 'calc(100vh - 55px)', overflowY: 'auto', padding: '20px', background: '#111b21' }}>
+                <div style={{ maxWidth: '800px', margin: '0 auto' }}>
+                    <h2 style={{ color: '#e9edef', marginBottom: '20px', fontSize: '24px' }}>Custom AI Prompts</h2>
+                    <p style={{ color: '#aebac1', marginBottom: '30px', fontSize: '16px', lineHeight: '1.5' }}>
+                        Customize the system prompts used by AI models in different conversation contexts.
+                    </p>
+
+                    {promptTypes.map(type => {
+                        const typePrompts = getPromptsForType(type.key);
+                        const activePrompt = typePrompts.find(p => p.is_active && p.is_default);
+
+                        return (
+                            <div key={type.key} style={{
+                                background: '#202c33',
+                                borderRadius: '8px',
+                                padding: '20px',
+                                marginBottom: '20px'
+                            }}>
+                                <div style={{
+                                    display: 'flex',
+                                    justifyContent: 'space-between',
+                                    alignItems: 'center',
+                                    marginBottom: '10px'
+                                }}>
+                                    <div>
+                                        <h3 style={{ color: '#ffffff', margin: 0, fontSize: '18px' }}>{type.label}</h3>
+                                        <p style={{ color: '#aebac1', fontSize: '15px', margin: '8px 0 0 0', lineHeight: '1.4' }}>
+                                            {type.description}
+                                        </p>
+                                    </div>
+                                    <button
+                                        onClick={() => setEditingPrompt({
+                                            prompt_type: type.key,
+                                            title: `My ${type.label}`,
+                                            content: '',
+                                            is_default: true
+                                        })}
+                                        style={{
+                                            background: '#00a884',
+                                            color: 'white',
+                                            border: 'none',
+                                            padding: '8px 16px',
+                                            borderRadius: '20px',
+                                            cursor: 'pointer',
+                                            fontSize: '14px'
+                                        }}
+                                    >
+                                        + Add Custom
+                                    </button>
+                                </div>
+
+                                {activePrompt ? (
+                                    <div style={{
+                                        background: '#111b21',
+                                        padding: '15px',
+                                        borderRadius: '6px',
+                                        border: '1px solid #333'
+                                    }}>
+                                        <div style={{
+                                            display: 'flex',
+                                            justifyContent: 'space-between',
+                                            alignItems: 'center',
+                                            marginBottom: '10px'
+                                        }}>
+                                            <h4 style={{ color: '#00a884', margin: 0, fontSize: '14px' }}>
+                                                {activePrompt.title}
+                                            </h4>
+                                            <div>
+                                                <button
+                                                    onClick={() => setEditingPrompt(activePrompt)}
+                                                    style={{
+                                                        background: 'transparent',
+                                                        color: '#8696a0',
+                                                        border: '1px solid #8696a0',
+                                                        padding: '4px 8px',
+                                                        borderRadius: '4px',
+                                                        cursor: 'pointer',
+                                                        fontSize: '12px',
+                                                        marginRight: '8px'
+                                                    }}
+                                                >
+                                                    Edit
+                                                </button>
+                                                {activePrompt.user_id !== '00000000-0000-0000-0000-000000000001' && (
+                                                    <button
+                                                        onClick={() => onDelete(activePrompt.id)}
+                                                        style={{
+                                                            background: 'transparent',
+                                                            color: '#f87171',
+                                                            border: '1px solid #f87171',
+                                                            padding: '4px 8px',
+                                                            borderRadius: '4px',
+                                                            cursor: 'pointer',
+                                                            fontSize: '12px'
+                                                        }}
+                                                    >
+                                                        Delete
+                                                    </button>
+                                                )}
+                                            </div>
+                                        </div>
+                                        <pre style={{
+                                            color: '#e9edef',
+                                            fontSize: '13px',
+                                            whiteSpace: 'pre-wrap',
+                                            margin: 0
+                                        }}>
+                                            {activePrompt.content.length > 200
+                                                ? activePrompt.content.substring(0, 200) + '...'
+                                                : activePrompt.content
+                                            }
+                                        </pre>
+                                    </div>
+                                ) : (
+                                    <div style={{
+                                        background: '#0f1419',
+                                        padding: '15px',
+                                        borderRadius: '6px',
+                                        border: '1px solid #2a3942'
+                                    }}>
+                                        <div style={{
+                                            display: 'flex',
+                                            justifyContent: 'space-between',
+                                            alignItems: 'center',
+                                            marginBottom: '10px'
+                                        }}>
+                                            <h4 style={{ color: '#8696a0', margin: 0, fontSize: '14px' }}>
+                                                System Default
+                                            </h4>
+                                            <button
+                                                onClick={() => setEditingPrompt({
+                                                    prompt_type: type.key,
+                                                    title: `My ${type.label}`,
+                                                    content: getDefaultPromptForType(type.key),
+                                                    is_default: true
+                                                })}
+                                                style={{
+                                                    background: '#00a884',
+                                                    color: 'white',
+                                                    border: 'none',
+                                                    padding: '4px 8px',
+                                                    borderRadius: '4px',
+                                                    cursor: 'pointer',
+                                                    fontSize: '12px'
+                                                }}
+                                            >
+                                                Customize
+                                            </button>
+                                        </div>
+                                        <pre style={{
+                                            color: '#aebac1',
+                                            fontSize: '13px',
+                                            whiteSpace: 'pre-wrap',
+                                            margin: 0
+                                        }}>
+                                            {getDefaultPromptForType(type.key).length > 200
+                                                ? getDefaultPromptForType(type.key).substring(0, 200) + '...'
+                                                : getDefaultPromptForType(type.key)
+                                            }
+                                        </pre>
+                                    </div>
+                                )}
+                            </div>
+                        );
+                    })}
+                </div>
+            </div>
+
+            {/* Edit Prompt Modal */}
+            {editingPrompt && (
+                <div style={{
+                    position: 'fixed',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    background: 'rgba(0,0,0,0.8)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    zIndex: 1000
+                }}>
+                    <div style={{
+                        background: '#202c33',
+                        borderRadius: '8px',
+                        padding: '20px',
+                        width: '90%',
+                        maxWidth: '600px',
+                        maxHeight: '80vh',
+                        overflowY: 'auto'
+                    }}>
+                        <h3 style={{ color: '#e9edef', marginBottom: '20px' }}>
+                            {editingPrompt.id ? 'Edit Prompt' : 'Add New Prompt'}
+                        </h3>
+
+                        <div style={{ marginBottom: '15px' }}>
+                            <label style={{ color: '#e9edef', display: 'block', marginBottom: '5px' }}>
+                                Title
+                            </label>
+                            <input
+                                type="text"
+                                value={editingPrompt.title}
+                                onChange={(e) => setEditingPrompt({ ...editingPrompt, title: e.target.value })}
+                                style={{
+                                    width: '100%',
+                                    padding: '8px',
+                                    background: '#111b21',
+                                    color: '#e9edef',
+                                    border: '1px solid #333',
+                                    borderRadius: '4px'
+                                }}
+                            />
+                        </div>
+
+                        <div style={{ marginBottom: '15px' }}>
+                            <label style={{ color: '#e9edef', display: 'block', marginBottom: '5px' }}>
+                                Content
+                            </label>
+                            <textarea
+                                value={editingPrompt.content}
+                                onChange={(e) => setEditingPrompt({ ...editingPrompt, content: e.target.value })}
+                                rows={10}
+                                style={{
+                                    width: '100%',
+                                    padding: '8px',
+                                    background: '#111b21',
+                                    color: '#e9edef',
+                                    border: '1px solid #333',
+                                    borderRadius: '4px',
+                                    resize: 'vertical'
+                                }}
+                                placeholder="Enter your custom prompt here..."
+                            />
+                        </div>
+
+                        <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+                            <button
+                                onClick={() => setEditingPrompt(null)}
+                                style={{
+                                    background: 'transparent',
+                                    color: '#8696a0',
+                                    border: '1px solid #8696a0',
+                                    padding: '8px 16px',
+                                    borderRadius: '4px',
+                                    cursor: 'pointer'
+                                }}
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={() => onSave(editingPrompt)}
+                                disabled={!editingPrompt.title || !editingPrompt.content}
+                                style={{
+                                    background: '#00a884',
+                                    color: 'white',
+                                    border: 'none',
+                                    padding: '8px 16px',
+                                    borderRadius: '4px',
+                                    cursor: 'pointer',
+                                    opacity: (!editingPrompt.title || !editingPrompt.content) ? 0.5 : 1
+                                }}
+                            >
+                                Save
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+};
 
 export default App;
 
